@@ -1,3 +1,4 @@
+#include <cstdint>
 #include <vulkan/vulkan_core.h>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <optional>
 
 VkResult CreateDebugUtilsMessengerEXT(VkInstance instance, const VkDebugUtilsMessengerCreateInfoEXT* pCreateInfo, const VkAllocationCallbacks* pAllocator, VkDebugUtilsMessengerEXT* pDebugMessenger)
 {
@@ -35,6 +37,10 @@ void DestroyDebugUtilsMessengerEXT(VkInstance instance, VkDebugUtilsMessengerEXT
 class HelloTriangleApplication
 {
 public:
+    HelloTriangleApplication():
+        m_phyDevice(VK_NULL_HANDLE) {
+    }
+
     void run()
     {
         m_initWindow();
@@ -47,6 +53,7 @@ private:
     GLFWwindow* m_window;
     VkInstance m_instance;
     VkDebugUtilsMessengerEXT m_debugMessenger;
+    VkPhysicalDevice m_phyDevice;
     const uint32_t m_WIDTH = 800;
     const uint32_t m_HEIGHT = 600;
     const std::vector<const char*> m_validationLayers = {
@@ -57,6 +64,14 @@ private:
 #else
     const bool m_enableValidationLayers = true;
 #endif
+
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphicsFamily;
+
+        bool isComplete() {
+            return graphicsFamily.has_value();
+        }
+    };
 
     void m_createInstance()
     {
@@ -176,6 +191,7 @@ private:
     {
         m_createInstance();
         m_setupDebugMessenger();
+        m_pickPHYDevice();
     }
 
     void m_mainLoop()
@@ -254,6 +270,50 @@ private:
         std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
 
         return VK_FALSE;
+    }
+
+    void m_pickPHYDevice() {
+        uint32_t deviceCount = 0;
+        vkEnumeratePhysicalDevices(m_instance, &deviceCount, nullptr);
+        if (!deviceCount) {
+            throw std::runtime_error("failed to find GPUs with Vulkan support");
+        }
+
+        std::vector<VkPhysicalDevice> devices(deviceCount);
+        vkEnumeratePhysicalDevices(m_instance, &deviceCount, devices.data());
+        for (const auto& device : devices) {
+            if (m_isDeviceSuitable(device)) {
+                m_phyDevice = device;
+                break;
+            }
+        }
+
+        if (m_phyDevice == VK_NULL_HANDLE) {
+            throw std::runtime_error("Suitable device not found!");
+        }
+    }
+
+    bool m_isDeviceSuitable(VkPhysicalDevice device) {
+        QueueFamilyIndices indices = m_findQueueFamilies(device);
+        return indices.isComplete();
+    }
+
+    QueueFamilyIndices m_findQueueFamilies(VkPhysicalDevice device) {
+        QueueFamilyIndices indices;
+        uint32_t queueFamilyCount = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, nullptr);
+        std::vector<VkQueueFamilyProperties> queueFamilies(queueFamilyCount);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queueFamilyCount, queueFamilies.data());
+
+        int i = 0;
+        for (const auto& queueFamily : queueFamilies) {
+            if (queueFamily.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indices.graphicsFamily = i;
+            }
+            i++;
+        }
+
+        return indices;
     }
 };
 
